@@ -3,7 +3,26 @@
 var r = require('rethinkdb'),
     fs = require('fs'),
     _ = require('lodash'),
-    async = require('async');
+    async = require('async'),
+    highland = require('highland');
+
+
+function readTable(tableName) {
+    // Create a highland stream from a rethinkdb table cursor
+    return highland(function (push, next) {
+        r.connect({db : "zinnug"}, function dbOpened(err, connection){
+            if(err) throw err;
+            r.table(tableName).run(connection, function handleDocuments(err, cursor){
+                if(err) throw err;
+                cursor.each(push, function closeStreamAndDb() {
+                    push(null, highland.nil);
+                    connection.close();
+                });
+            });
+        })
+    });
+};
+
 
 function initDb() {
     async.waterfall([
@@ -156,12 +175,11 @@ function numberLetters(phoneNumber) {
 function algo1(phoneNumber) {
     //Look up all word combinations for the numbers
     var lettersForEachNumber = numberLetters(phoneNumber);
+    readTable("words").each(console.log);
     console.log(lettersForEachNumber);
     //Generate sentence by selecting matching firstletter words possible
     //Calculate their score by checking the number of triplet matches
     //Pick the highest scoring one
-
-    return phoneNumber;
 }
 
 function main(arguments) {
