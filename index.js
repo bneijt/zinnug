@@ -109,6 +109,8 @@ function loadHetBoek() {
 
                 //Each of the words
                 words = contents.split(" ");
+                //Minimum length of 1
+                words = _.filter(words, function (x) { return x.length > 1; });
                 words.sort();
                 words = _.uniq(words, true);
                 console.log("Loading words: " + words.length);
@@ -132,10 +134,13 @@ function loadHetBoek() {
                     /\./g, ' . ',
                     / +/g, ' ',
                     ]).split(" ");
+                //Minimum length of 1
+                words = _.filter(words, function (x) { return x.length > 1; });
+
                 triplets = _.map(words, function crTriplets(value, index, collection){
                     var triplet = collection.slice(index, index + 3);
                     if(triplet.length == 3) {
-                        return {id: triplet.join("-"), fst: triplet[0], snd: triplet[1], trd: triplet[2]};
+                        return {id: triplet.join("-").toLowerCase(), fst: triplet[0], snd: triplet[1], trd: triplet[2]};
                     }
                     return null;
                 });
@@ -159,27 +164,51 @@ function loadHetBoek() {
 function numberLetters(phoneNumber) {
     return _.map(phoneNumber, function lettersForNumber(n){
         return {
-            "0": "0",
-            "1": "1abc",
-            "2": "2def",
-            "3": "3ghi",
-            "4": "4jkl",
-            "5": "5mno",
-            "6": "6pqrs",
-            "7": "7tuv",
-            "8": "8wxyz",
-            "9": "9"
+            "0": ["0"],
+            "1": _.map("1abc"),
+            "2": _.map("2def"),
+            "3": _.map("3ghi"),
+            "4": _.map("4jkl"),
+            "5": _.map("5mno"),
+            "6": _.map("6pqrs"),
+            "7": _.map("7tuv"),
+            "8": _.map("8wxyz"),
+            "9": ["9"]
         }[n];
     });
+}
+
+function tripletStartsWithAnyOf(collection) {
+    return function (x) {
+        return _.includes(collection, x['id'][0]);
+    }
+}
+
+function idStartsWithLetter(letter) {
+    return function(obj) {
+        return obj['id'][0] == letter;
+    }
+}
+
+function orderTripletMatches(lettersForEachNumber) {
+    return function (triplets) {
+        console.log("Triplets: " + triplets);
+        return '';
+    }
 }
 function algo1(phoneNumber) {
     //Look up all word combinations for the numbers
     var lettersForEachNumber = numberLetters(phoneNumber);
-    readTable("words").each(console.log);
-    console.log(lettersForEachNumber);
-    //Generate sentence by selecting matching firstletter words possible
-    //Calculate their score by checking the number of triplet matches
-    //Pick the highest scoring one
+    var letters = _.uniq(_.flatten(lettersForEachNumber));
+    console.log("For " + phoneNumber);
+    readTable("triplets").filter(tripletStartsWithAnyOf(letters)).collect().each(function anyMatchGiven(triplets){
+        //Select any sentence
+        _.each(lettersForEachNumber, function justTheTip(letters){
+            var letter = letters[1];
+            console.log(_.filter(triplets, idStartsWithLetter(letter))[0]['fst']);
+        })
+    });
+
 }
 
 function main(arguments) {
@@ -197,7 +226,7 @@ function main(arguments) {
             //Run as many times as the data changes
             loadHetBoek();
             break;
-        case "test":
+        case "run":
             var phoneNumber = "55776584"; //randomly selected phonenumber
             algo1(phoneNumber);
             break;
