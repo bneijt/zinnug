@@ -140,7 +140,11 @@ function loadHetBoek() {
                 triplets = _.map(words, function crTriplets(value, index, collection){
                     var triplet = collection.slice(index, index + 3);
                     if(triplet.length == 3) {
-                        return {id: triplet.join("-").toLowerCase(), fst: triplet[0], snd: triplet[1], trd: triplet[2]};
+                        return {
+                            id: triplet.join("-").toLowerCase(),
+                            fst: triplet[0],
+                            snd: triplet[1],
+                            trd: triplet[2]};
                     }
                     return null;
                 });
@@ -196,18 +200,86 @@ function orderTripletMatches(lettersForEachNumber) {
         return '';
     }
 }
+
+function scoreTriplets(lettersForEachNumber) {
+    var zeroScores = new Array(lettersForEachNumber.length);
+    _.fill(zeroScores, 0);
+    return function (triplet) {
+        triplet['score'] = zeroScores.slice();
+        _.each(lettersForEachNumber, function (letters, index) {
+            if(_.includes(letters, triplet['fst'][0])) {
+                triplet['score'][index] += 1;
+            }
+            if(_.includes(lettersForEachNumber[index +1], triplet['snd'][0])){
+                triplet['score'][index] += 1;
+            }
+            if(_.includes(lettersForEachNumber[index +2], triplet['trd'][0])){
+                triplet['score'][index] += 1;
+            }
+        });
+        return triplet;
+    }
+}
+
+function bestMatchPerLetterGenerator() {
+    var bestMatch = undefined;
+
+    return function bestMatchPerLetter(err, tripletWithScore, push, next) {
+        if (err) {
+            push(err);
+            return next();
+        }
+        else if (tripletWithScore === highland.nil) {
+            //Send best match per letter through
+            push(null, bestMatch);
+            push(null, highland.nil);
+        }
+        else {
+            // console.log(tripletWithScore);
+            if(bestMatch === undefined) {
+                bestMatch = new Array(tripletWithScore['score'].length);
+            }
+            if(tripletWithScore['score'] == undefined) {
+                console.log(tripletWithScore);
+            }
+            //Check the scores for each triplet
+            _.each(bestMatch, function(currentBestMatch, index) {
+                if(currentBestMatch === undefined) {
+                    bestMatch[index] = tripletWithScore;
+                } else if (currentBestMatch['score'][index] < tripletWithScore['score'][index]) {
+                    bestMatch[index] = tripletWithScore;
+                } else if (currentBestMatch['score'][index] == tripletWithScore['score'][index]) {
+                    //The triplet has equal scoring at the given index, test score sum
+                    if(_.sum(currentBestMatch['score']) < _.sum(tripletWithScore['score'])) {
+                        bestMatch[index] = tripletWithScore;
+                    }
+                }
+            });
+            return next();
+        }
+    };
+}
+function logFstOfTripletArray(tripletArray) {
+    _.each(tripletArray, function(x) {
+        console.log(x['fst']);
+    });
+}
 function algo1(phoneNumber) {
     //Look up all word combinations for the numbers
     var lettersForEachNumber = numberLetters(phoneNumber);
     var letters = _.uniq(_.flatten(lettersForEachNumber));
     console.log("For " + phoneNumber);
-    readTable("triplets").filter(tripletStartsWithAnyOf(letters)).collect().each(function anyMatchGiven(triplets){
-        //Select any sentence
-        _.each(lettersForEachNumber, function justTheTip(letters){
-            var letter = letters[1];
-            console.log(_.filter(triplets, idStartsWithLetter(letter))[0]['fst']);
-        })
-    });
+    readTable("triplets").
+        filter(tripletStartsWithAnyOf(letters)).
+        map(scoreTriplets(lettersForEachNumber)).
+        consume(bestMatchPerLetterGenerator()).
+        each(logFstOfTripletArray);
+    // .collect().each(function anyMatchGiven(triplets){
+    //     //Select any sentence
+    //     _.each(lettersForEachNumber, function justTheTip(letters, index){
+    //         console.log(_.filter(triplets, idStartsWithLetter(letter))[0]['fst']);
+    //     })
+    // });
 
 }
 
