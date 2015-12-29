@@ -87,84 +87,102 @@ function translate(haystack, searchReplaces) {
     return haystack;
 }
 
-
-
-function loadHetBoek() {
-    async.waterfall([
-        function openConnection(done) {
-            console.log("Connecting");
-            r.connect({db:"zinnug"}, done);
-        },
-        function insertWords(connection, done) {
-            //Split data files into words and put them in the databse
-            fs.readFile('data/Het-Boek.txt', {"encoding": "utf-8"}, function(error, wholeFile) {
-                if (error) {
-                    throw err
-                }
-                console.log("Translate")
-                contents = translate(wholeFile, [
-                    /[^a-zA-Z]+/g, ' ',
-                    / +/g, ' ',
-                    ]);
-
-                //Each of the words
-                words = contents.split(" ");
-                //Minimum length of 1
-                words = _.filter(words, function (x) { return x.length > 1; });
-                words.sort();
-                words = _.uniq(words, true);
-                console.log("Loading words: " + words.length);
-                wordObjects = _.map(words, function(word) { return {id: word, lastInsertSource: "Het-Boek"};});
-                async.each(_.chunk(wordObjects, 500), function insertWordObjects(wordObjects, next) {
-                    r.table("words").insert(wordObjects, {conflict: "replace"}).run(connection, next);
-                }, function(){ console.log("done"); done(null, connection)});
-            });
-        },
-        function insertTriplets(connection, done) {
-            //Split data files into words and put them in the databse
-            fs.readFile('data/Het-Boek.txt', {"encoding": "utf-8"}, function(error, wholeFile) {
-                if (error) {
-                    throw err
-                }
-                console.log("Loading triplets");
-
-                //Word triplets
-                words = translate(wholeFile, [
-                    /[^a-zA-Z.]+/g, ' ',
-                    /\./g, ' . ',
-                    / +/g, ' ',
-                    ]).split(" ");
-                //Minimum length of 1
-                words = _.filter(words, function (x) { return x.length > 1; });
-
-                triplets = _.map(words, function crTriplets(value, index, collection){
-                    var triplet = collection.slice(index, index + 3);
-                    if(triplet.length == 3) {
-                        return {
-                            id: triplet.join("-").toLowerCase(),
-                            fst: triplet[0],
-                            snd: triplet[1],
-                            trd: triplet[2]};
+function loadPlainWordsFrom(filePath) {
+    return function (everythingLoaded) {
+        async.waterfall([
+            function openConnection(done) {
+                console.log("Connecting");
+                r.connect({db:"zinnug"}, done);
+            },
+            function insertWords(connection, done) {
+                //Split data files into words and put them in the databse
+                fs.readFile(filePath, {"encoding": "utf-8"}, function(error, wholeFile) {
+                    if (error) {
+                        throw err
                     }
-                    return null;
+                    console.log("Translating " + filePath);
+                    contents = translate(wholeFile, [
+                        /[^a-zA-Z]+/g, ' ',
+                        / +/g, ' ',
+                        ]);
+
+                    //Each of the words
+                    words = contents.split(" ");
+                    //Minimum length of 1
+                    words = _.filter(words, function (x) { return x.length > 1; });
+                    words.sort();
+                    words = _.uniq(words, true);
+                    console.log("Read " + words.length + " words");
+                    async.each(_.chunk(words, 500), function insertWordObjects(chunkOfWords, next) {
+                        r.table("words").insert(_.map(chunkOfWords, function(word) { return {id: word};}), {conflict: "replace"}).run(connection, next);
+                    }, function(){ console.log("done"); done(null, connection)});
                 });
-
-                triplets = _.reject(triplets, _.isNull);
-                console.log("Found " + triplets.length + " triplets");
-
-                //Insert triplets
-                async.each(_.chunk(triplets, 500), function insert(obj, next) {
-                    r.table("triplets").insert(obj, {conflict: "replace"}).run(connection, next);
-                }, function(){ console.log("done"); done(null, connection)});
-            });
-        },
-        function closeConnection(connection) {
-            console.log("Closing connection");
-            connection.close();
-        }
-    ]);
-
+            },
+            function closeConnection(connection, done) {
+                console.log("Closing connection");
+                connection.close();
+                everythingLoaded(null);
+            }
+        ], console.log);
+    }
 }
+
+
+function loadTripletsForm(filePath) {
+    return function (everythingLoaded) {
+        async.waterfall([
+            function openConnection(done) {
+                console.log("Connecting");
+                r.connect({db:"zinnug"}, done);
+            },
+            function insertTriplets(connection, done) {
+                //Split data files into words and put them in the databse
+                fs.readFile(filePath, {"encoding": "utf-8"}, function(error, wholeFile) {
+                    if (error) {
+                        throw err
+                    }
+                    console.log("Loading triplets from " + filePath);
+
+                    //Word triplets
+                    words = translate(wholeFile, [
+                        /[^a-zA-Z.]+/g, ' ',
+                        /\./g, ' . ',
+                        / +/g, ' ',
+                        ]).split(" ");
+                    //Minimum length of 1
+                    words = _.filter(words, function (x) { return x.length > 1; });
+
+                    triplets = _.map(words, function crTriplets(value, index, collection){
+                        var triplet = collection.slice(index, index + 3);
+                        if(triplet.length == 3) {
+                            return {
+                                id: triplet.join("-").toLowerCase(),
+                                fst: triplet[0],
+                                snd: triplet[1],
+                                trd: triplet[2]};
+                        }
+                        return null;
+                    });
+
+                    triplets = _.reject(triplets, _.isNull);
+                    console.log("Found " + triplets.length + " triplets in " + filePath);
+
+                    //Insert triplets
+                    async.each(_.chunk(triplets, 500), function insert(obj, next) {
+                        r.table("triplets").insert(obj, {conflict: "replace"}).run(connection, next);
+                    }, function(){ console.log("done"); done(null, connection)});
+                });
+            },
+            function closeConnection(connection, done) {
+                console.log("Closing connection");
+                connection.close();
+                everythingLoaded(null);
+            }
+        ], console.log);
+    }
+}
+
+
 function numberLetters(phoneNumber) {
     return _.map(phoneNumber, function lettersForNumber(n){
         return {
@@ -296,7 +314,11 @@ function main(arguments) {
             break;
         case "load":
             //Run as many times as the data changes
-            loadHetBoek();
+            //loadHetBoek();
+            async.waterfall([
+                loadPlainWordsFrom("data/Het-Boek.txt"),
+                loadTripletsForm("data/Het-Boek.txt")
+                ], console.log);
             break;
         case "run":
             var phoneNumber = "55776584"; //randomly selected phonenumber
