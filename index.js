@@ -144,32 +144,37 @@ function loadTripletsForm(filePath) {
                     console.log("Loading triplets from " + filePath);
 
                     //Word triplets
-                    words = translate(wholeFile, [
+                    var words = translate(wholeFile, [
                         /[^a-zA-Z.]+/g, ' ',
-                        /\./g, ' . ',
+                        /\.+/g, ' .. ', //End of sentence marker
                         / +/g, ' ',
                         ]).split(" ");
                     //Minimum length of 1
                     words = _.filter(words, function (x) { return x.length > 1; });
 
-                    triplets = _.map(words, function crTriplets(value, index, collection){
-                        var triplet = collection.slice(index, index + 3);
-                        if(triplet.length == 3) {
-                            return {
-                                id: triplet.join("-").toLowerCase(),
-                                fst: triplet[0],
-                                snd: triplet[1],
-                                trd: triplet[2]};
-                        }
-                        return null;
-                    });
-
-                    triplets = _.reject(triplets, _.isNull);
-                    console.log("Found " + triplets.length + " triplets in " + filePath);
-
+                    console.log("Found " + words.length + " words in " + filePath);
+                    //We are loosing triplets by chunking and then creating triplets, but we are winning memory.
+                    //TODO Use stream processing here, to keep memory usage to a minium and still retain all triplets
                     //Insert triplets
-                    async.each(_.chunk(triplets, 500), function insert(obj, next) {
-                        r.table("triplets").insert(obj, {conflict: "replace"}).run(connection, next);
+                    async.each(_.chunk(words, 2000), function insert(chunkOfWords, next) {
+
+                        var triplets = _.map(chunkOfWords, function crTriplets(value, index, collection){
+                            var triplet = collection.slice(index, index + 3);
+                            if(triplet.length == 3) {
+                                return {
+                                    id: triplet.join("-").toLowerCase(),
+                                    fst: triplet[0],
+                                    snd: triplet[1],
+                                    trd: triplet[2]};
+                            }
+                            return null;
+                        });
+
+                        triplets = _.reject(triplets, _.isNull);
+
+
+
+                        r.table("triplets").insert(triplets, {conflict: "replace"}).run(connection, next);
                     }, function(){ console.log("done"); done(null, connection)});
                 });
             },
@@ -225,14 +230,14 @@ function scoreTriplets(lettersForEachNumber) {
     return function (triplet) {
         triplet['score'] = zeroScores.slice();
         _.each(lettersForEachNumber, function (letters, index) {
-            if(_.includes(letters, triplet['fst'][0])) {
+            if(_.includes(lettersForEachNumber[index -1], triplet['fst'][0])) {
+                triplet['score'][index -1] += 1;
+            }
+            if(_.includes(lettersForEachNumber[index   ], triplet['snd'][0])){
                 triplet['score'][index] += 1;
             }
-            if(_.includes(lettersForEachNumber[index +1], triplet['snd'][0])){
-                triplet['score'][index] += 1;
-            }
-            if(_.includes(lettersForEachNumber[index +2], triplet['trd'][0])){
-                triplet['score'][index] += 1;
+            if(_.includes(lettersForEachNumber[index +1], triplet['trd'][0])){
+                triplet['score'][index +1] += 1;
             }
         });
         return triplet;
@@ -279,7 +284,7 @@ function bestMatchPerLetterGenerator() {
 }
 function logFstOfTripletArray(tripletArray) {
     _.each(tripletArray, function(x) {
-        console.log(x['fst']);
+        console.log(x['score'], x['id']);
     });
 }
 function algo1(phoneNumber) {
@@ -292,13 +297,6 @@ function algo1(phoneNumber) {
         map(scoreTriplets(lettersForEachNumber)).
         consume(bestMatchPerLetterGenerator()).
         each(logFstOfTripletArray);
-    // .collect().each(function anyMatchGiven(triplets){
-    //     //Select any sentence
-    //     _.each(lettersForEachNumber, function justTheTip(letters, index){
-    //         console.log(_.filter(triplets, idStartsWithLetter(letter))[0]['fst']);
-    //     })
-    // });
-
 }
 
 function main(arguments) {
@@ -315,14 +313,19 @@ function main(arguments) {
         case "load":
             //Run as many times as the data changes
             //loadHetBoek();
+            gutenbergBooks = _.map(_.filter(fs.readdirSync("data/gutenberg.org"), function(x) {return x.indexOf(".txt.utf-8") > 0; }),
+                function (filename) {
+                    return loadTripletsForm("data/gutenberg.org/" + filename);
+                });
+
             async.waterfall([
-                loadPlainWordsFrom("data/Het-Boek.txt"),
-                loadTripletsForm("data/Het-Boek.txt")
-                ], console.log);
+                // loadPlainWordsFrom("data/Het-Boek.txt"),
+                loadTripletsForm("data/Het-Boek.txt"),
+                ].concat(gutenbergBooks), console.log);
             break;
         case "run":
-            var phoneNumber = "55776584"; //randomly selected phonenumber
-            algo1(phoneNumber);
+            var number = "55776584"; //randomly selected number
+            algo1(number);
             break;
         default:
             console.log("Unknown command " + command);
