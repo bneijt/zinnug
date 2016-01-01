@@ -186,21 +186,66 @@ function loadTripletsForm(filePath) {
         ], console.log);
     }
 }
+function loadSentencesFrom(filePath) {
+    return function (everythingLoaded) {
+        async.waterfall([
+            function openConnection(done) {
+                console.log("Connecting");
+                r.connect({db:"zinnug"}, done);
+            },
+            function insertSentences(connection, done) {
+                //Split data files into words and put them in the databse
+                fs.readFile(filePath, {"encoding": "utf-8"}, function(error, wholeFile) {
+                    if (error) {
+                        throw err
+                    }
+                    console.log("Loading sentences from " + filePath);
 
+                    //Word triplets
+                    var sentences = translate(wholeFile, [
+                        /[^a-zA-Z.]+/g, ' ',
+                        /\.+/g, ' .. ', //End of sentence marker
+                        / +/g, ' ',
+                        ]).split(" .. ");
+                    //Minimum length of 2 words
+                    sentences = _.filter(sentences, function (x) { return x.length > 2; });
+
+                    console.log("Found " + sentences.length + " in " + filePath);
+                    //We are loosing triplets by chunking and then creating triplets, but we are winning memory.
+                    //TODO Use stream processing here, to keep memory usage to a minium and still retain all triplets
+                    //Insert triplets
+                    async.each(_.chunk(sentences, 200), function insert(chunkOfSentences, next) {
+
+                        var sentenceObjects = _.map(chunkOfSentences, function crSentence(value, index, collection){
+                            return {"id": value};
+                        });
+
+                        r.table("sentences").insert(sentenceObjects, {conflict: "replace"}).run(connection, next);
+                    }, function(){ console.log("done"); done(null, connection)});
+                });
+            },
+            function closeConnection(connection, done) {
+                console.log("Closing connection");
+                connection.close();
+                everythingLoaded(null);
+            }
+        ], console.log);
+    }
+}
 
 function numberLetters(phoneNumber) {
     return _.map(phoneNumber, function lettersForNumber(n){
         return {
             "0": ["0"],
-            "1": _.map("1abc"),
-            "2": _.map("2def"),
-            "3": _.map("3ghi"),
-            "4": _.map("4jkl"),
-            "5": _.map("5mno"),
-            "6": _.map("6pqrs"),
-            "7": _.map("7tuv"),
-            "8": _.map("8wxyz"),
-            "9": ["9"]
+            "1": ["1"],
+            "2": _.map("2abc"),
+            "3": _.map("3def"),
+            "4": _.map("4ghi"),
+            "5": _.map("5jkl"),
+            "6": _.map("6mno"),
+            "7": _.map("7pqrs"),
+            "8": _.map("8tuv"),
+            "9": _.map("9wxyz"),
         }[n];
     });
 }
